@@ -157,7 +157,7 @@ function metaTable(rows: Array<[string, string]>): string {
   const table = new Table({
     chars: minimalTableChars(),
     style: { head: [], border: [] },
-    colWidths: [14, 80],
+    colWidths: [14, Math.max(40, terminalWidth() - 18)],
     wordWrap: true
   });
   for (const [label, value] of rows) {
@@ -185,11 +185,12 @@ function tokenTable(totals: ThreadReport["tokenTotals"]): string {
 
 function threadSummaryTable(threads: ThreadReport[], currency: string): string {
   const visibleThreads = [...threads].sort((a, b) => b.estimatedDollars - a.estimatedDollars).slice(0, 25);
+  const widths = threadTableWidths(visibleThreads, currency);
   const table = new Table({
     head: ["Thread", "Cost", "Tokens", "Models"].map((label) => pc.bold(label)),
     chars: minimalTableChars(),
     style: { head: [], border: [] },
-    colWidths: [48, 14, 14, 30],
+    colWidths: widths,
     wordWrap: true
   });
   for (const thread of visibleThreads) {
@@ -202,6 +203,36 @@ function threadSummaryTable(threads: ThreadReport[], currency: string): string {
   }
   const hiddenCount = threads.length - visibleThreads.length;
   return hiddenCount > 0 ? `${table.toString()}\n${pc.dim(`Showing top ${visibleThreads.length} threads by cost. ${hiddenCount} more in exports.`)}` : table.toString();
+}
+
+function threadTableWidths(threads: ThreadReport[], currency: string): [number, number, number, number] {
+  const gapWidth = 6;
+  const available = Math.max(90, terminalWidth()) - gapWidth;
+  const costWidth = clamp(
+    Math.max(12, ...threads.map((thread) => formatMoney(thread.estimatedDollars, currency).length + 2)),
+    14,
+    22
+  );
+  const tokenWidth = clamp(
+    Math.max(10, ...threads.map((thread) => formatInteger(thread.tokenTotals.totalTokens).length + 2)),
+    14,
+    20
+  );
+  const modelWidth = clamp(
+    Math.max(16, ...threads.map((thread) => thread.models.join(", ").length + 2)),
+    20,
+    38
+  );
+  const threadWidth = Math.max(24, available - costWidth - tokenWidth - modelWidth);
+  return [threadWidth, costWidth, tokenWidth, modelWidth];
+}
+
+function terminalWidth(): number {
+  return process.stdout.columns || Number(process.env.COLUMNS) || 120;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function minimalTableChars() {
