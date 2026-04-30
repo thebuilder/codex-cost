@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { select } from "@inquirer/prompts";
+import { input, select } from "@inquirer/prompts";
 import { Command } from "commander";
+import ora from "ora";
 import { scanCodex } from "./codex-parser.ts";
 import { loadConfig } from "./config.ts";
-import { terminalProjectReport, terminalThreadReport, writeCsv, writeJson, writeXlsx } from "./exporters.ts";
+import { dateRangeFromPreset, filterEventsByDateRange, parseDateRange, type DateRange, type DateRangePreset } from "./date-range.ts";
+import { terminalProjectReport, terminalRateCard, terminalThreadReport, writeCsv, writeJson, writeXlsx } from "./exporters.ts";
 import { buildReports } from "./pricing.ts";
+import type { ProjectReport } from "./types.ts";
 
 const program = new Command();
 
@@ -15,26 +18,81 @@ program
   .description("Estimate local Codex thread token usage, dollar cost, and credits")
   .version("0.1.0")
   .action(async () => {
-    const { reports, config } = await loadReports();
-    const projectId = await select({
-      message: "Select project",
-      choices: reports.map((project) => ({ name: `${project.projectName} (${project.threadCount} threads)`, value: project.projectId }))
-    });
-    const project = reports.find((candidate) => candidate.projectId === projectId);
-    if (!project) throw new Error(`Project not found: ${projectId}`);
-    const threadId = await select({
-      message: "Select thread",
+    const action = await select<"report" | "export" | "rates">({
+      message: "What do you want to do?",
       choices: [
-        { name: "Project summary", value: "__project__" },
-        ...project.threads.map((thread) => ({ name: `${thread.name} (${thread.threadId})`, value: thread.threadId }))
+        { name: "Report", value: "report" },
+        { name: "Export", value: "export" },
+        { name: "Rates", value: "rates" }
       ]
     });
-    console.log(threadId === "__project__" ? terminalProjectReport(project, config.currency) : terminalThreadReport(project.threads.find((thread) => thread.threadId === threadId)!, config.currency));
+    if (action === "rates") {
+      const config = loadConfig();
+      console.log(terminalRateCard(config, config.currency));
+      return;
+    }
+    if (action === "export") {
+      await runInteractiveExport();
+      return;
+    }
+    await runInteractiveReport();
   });
+
+program.command("rates").description("Print the active rate card").action(() => {
+  const config = loadConfig();
+  console.log(terminalRateCard(config, config.currency));
+});
+
+async function runInteractiveReport() {
+  const dateRange = await selectDateRange();
+  const { scan, config } = await loadScan({ status: true });
+  const events = filterEventsByDateRange(scan.events, dateRange);
+  const reports = buildReports(events, config, scan.threadNames);
+  if (reports.length === 0) {
+    console.log(`No usage found for ${dateRange.label}.`);
+    return;
+  }
+  const projectId = await select({
+    message: `Select project (${dateRange.label})`,
+    choices: reports.map((project) => ({ name: `${project.projectName} (${project.threadCount} threads)`, value: project.projectId }))
+  });
+  const project = reports.find((candidate) => candidate.projectId === projectId);
+  if (!project) throw new Error(`Project not found: ${projectId}`);
+  const threadId = await select({
+    message: "Select thread",
+    choices: [
+      { name: "Project summary", value: "__project__" },
+      ...project.threads.map((thread) => ({ name: `${thread.name} (${thread.threadId})`, value: thread.threadId }))
+    ]
+  });
+  const thread = project.threads.find((candidate) => candidate.threadId === threadId);
+  console.log(threadId === "__project__" ? terminalProjectReport(project, config.currency) : terminalThreadReport(thread!, config.currency));
+}
+
+async function runInteractiveExport() {
+  const format = await select<"xlsx" | "csv" | "json">({
+    message: "Select export format",
+    choices: [
+      { name: "Excel workbook (.xlsx)", value: "xlsx" },
+      { name: "CSV (.csv)", value: "csv" },
+      { name: "JSON (.json)", value: "json" }
+    ]
+  });
+  const dateRange = await selectDateRange();
+  const out = await input({
+    message: "Filename",
+    default: defaultExportFilename(format),
+    validate: (value) => (value.trim().length > 0 ? true : "Enter a filename")
+  });
+  const { reports, config } = await loadReports({ status: true, dateRange });
+  await writeReport(format, resolve(out), reports, config);
+}
 
 program.command("scan").option("--json", "print JSON").description("Debug parsed session counts and skipped records").action(async (options) => {
   const config = loadConfig();
+  const spinner = options.json ? null : startSpinner("Scanning Codex sessions");
   const scan = await scanCodex(config);
+  spinner?.succeed(`Scanned ${scan.filesRead} files and ${scan.events.length} usage events`);
   const payload = {
     filesRead: scan.filesRead,
     events: scan.events.length,
@@ -46,7 +104,7 @@ program.command("scan").option("--json", "print JSON").description("Debug parsed
 });
 
 program.command("report").option("--project <id>").option("--thread <thread-id>").description("Print a terminal report").action(async (options) => {
-  const { reports, config } = await loadReports();
+  const { reports, config } = await loadReports({ status: true });
   if (options.thread) {
     const thread = reports.flatMap((project) => project.threads).find((candidate) => candidate.threadId === options.thread);
     if (!thread) throw new Error(`Thread not found: ${options.thread}`);
@@ -62,22 +120,117 @@ program.command("report").option("--project <id>").option("--thread <thread-id>"
   throw new Error("Provide --project <id> or --thread <thread-id>");
 });
 
-program.command("export").option("--format <format>", "xlsx, csv, or json", "xlsx").option("--out <file>").description("Export reports").action(async (options) => {
-  const { reports, config } = await loadReports();
+program.command("export").option("--format <format>", "xlsx, csv, or json", "xlsx").option("--out <file>").option("--range <range>", "all, 1d, 1w, 1m, or month name", "all").description("Export reports").action(async (options) => {
+  const dateRange = parseDateRange(options.range);
+  const { reports, config } = await loadReports({ status: true, dateRange });
   const format = options.format as string;
   const out = resolve(options.out ?? defaultExportFilename(format));
-  await mkdir(dirname(out), { recursive: true });
-  if (format === "json") await writeJson(out, reports);
-  else if (format === "csv") await writeCsv(out, reports);
-  else if (format === "xlsx") await writeXlsx(out, reports, config);
-  else throw new Error(`Unsupported format: ${format}`);
-  console.log(`Wrote ${out}`);
+  await writeReport(format, out, reports, config);
 });
 
-async function loadReports() {
-  const config = loadConfig();
-  const scan = await scanCodex(config);
-  return { config, scan, reports: buildReports(scan.events, config, scan.threadNames) };
+async function writeReport(format: string, out: string, reports: ProjectReport[], config: ReturnType<typeof loadConfig>) {
+  await mkdir(dirname(out), { recursive: true });
+  if (format !== "json" && format !== "csv" && format !== "xlsx") throw new Error(`Unsupported format: ${format}`);
+  const spinner = startSpinner(`Writing ${format.toUpperCase()} report`);
+  try {
+    if (format === "json") await writeJson(out, reports);
+    else if (format === "csv") await writeCsv(out, reports);
+    else await writeXlsx(out, reports, config);
+    spinner?.succeed(`Wrote ${out}`);
+  } catch (error) {
+    spinner?.fail("Failed to write report");
+    throw error;
+  }
+}
+
+async function selectDateRange(): Promise<DateRange> {
+  const dateRangePreset = await select<DateRangePreset | "month">({
+    message: "Select date range",
+    choices: [
+      { name: "All time", value: "all" },
+      { name: "Past 1 day", value: "1d" },
+      { name: "Past 1 week", value: "1w" },
+      { name: "Past 1 month", value: "1m" },
+      { name: "Specific month...", value: "month" }
+    ]
+  });
+  if (dateRangePreset !== "month") return dateRangeFromPreset(dateRangePreset);
+  return parseDateRange(
+    await input({
+      message: "Month name",
+      validate: (value) => {
+        try {
+          parseDateRange(value);
+          return true;
+        } catch (error) {
+          return error instanceof Error ? error.message : "Invalid month";
+        }
+      }
+    })
+  );
+}
+
+async function loadReports(options: { status?: boolean; dateRange?: ReturnType<typeof parseDateRange> } = {}) {
+  const { config, scan } = await loadScan(options);
+  const events = options.dateRange ? filterEventsByDateRange(scan.events, options.dateRange) : scan.events;
+  const spinner = options.status ? startSpinner(`Building reports from ${events.length} usage events`) : null;
+  try {
+    const reports = buildReports(events, config, scan.threadNames);
+    spinner?.succeed(`Built ${reports.length} project reports from ${scan.filesRead} files`);
+    return { config, scan, reports };
+  } catch (error) {
+    spinner?.fail("Failed to build reports");
+    throw error;
+  }
+}
+
+async function loadScan(options: { status?: boolean } = {}) {
+  const spinner = options.status ? startSpinner("Loading configuration") : null;
+  try {
+    const config = loadConfig();
+    spinner?.setText("Scanning Codex sessions");
+    const scan = await scanCodex(config);
+    spinner?.succeed(`Scanned ${scan.filesRead} files and ${scan.events.length} usage events`);
+    return { config, scan };
+  } catch (error) {
+    spinner?.fail("Failed to scan Codex sessions");
+    throw error;
+  }
+}
+
+type Status = {
+  setText(text: string): void;
+  succeed(text: string): void;
+  fail(text: string): void;
+};
+
+function startSpinner(text: string): Status | null {
+  if (process.stderr.isTTY) {
+    const spinner = ora({ text, stream: process.stderr }).start();
+    return {
+      setText(nextText) {
+        spinner.text = nextText;
+      },
+      succeed(nextText) {
+        spinner.succeed(nextText);
+      },
+      fail(nextText) {
+        spinner.fail(nextText);
+      }
+    };
+  }
+  process.stderr.write(`${text}\n`);
+  return {
+    setText(nextText) {
+      process.stderr.write(`${nextText}\n`);
+    },
+    succeed(nextText) {
+      process.stderr.write(`${nextText}\n`);
+    },
+    fail(nextText) {
+      process.stderr.write(`${nextText}\n`);
+    }
+  };
 }
 
 function defaultExportFilename(format: string): string {
@@ -86,4 +239,21 @@ function defaultExportFilename(format: string): string {
   return `codex-cost-report-${timestamp}.${extension}`;
 }
 
-await program.parseAsync();
+try {
+  await program.parseAsync();
+} catch (error) {
+  if (isPromptInterrupted(error)) {
+    process.stderr.write("\n");
+    process.exit(130);
+  }
+  throw error;
+}
+
+function isPromptInterrupted(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "ExitPromptError" ||
+      error.message.includes("User force closed the prompt") ||
+      error.message.includes("SIGINT"))
+  );
+}

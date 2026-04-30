@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { scanCodex } from "../src/codex-parser.ts";
 import type { CodexCostConfig } from "../src/config.ts";
+import { filterEventsByDateRange, parseDateRange } from "../src/date-range.ts";
 import { allRateCards, buildReports } from "../src/pricing.ts";
 
 const fixtureCodexHome = resolve("tests/fixtures/codex");
@@ -83,6 +84,32 @@ test("builds reports with billable input, pricing, unpriced models, and override
   assert.deepEqual(creditThread.credits, { hasCredits: true, balance: 41 });
 });
 
+test("filters usage events by interactive date range presets", async () => {
+  const scan = await scanCodex(fixtureConfig());
+  const now = new Date("2026-04-14T09:02:00.000Z");
+
+  assert.equal(filterEventsByDateRange(scan.events, "all", now).length, 4);
+  assert.deepEqual(
+    filterEventsByDateRange(scan.events, "1d", now).map((event) => event.threadId).sort(),
+    ["auto-review-thread", "credit-thread"]
+  );
+  assert.equal(filterEventsByDateRange(scan.events, "1w", now).length, 4);
+  assert.equal(filterEventsByDateRange(scan.events, "1m", now).length, 4);
+});
+
+test("parses month names as nearest current or past month", () => {
+  const now = new Date("2026-04-30T12:00:00.000Z");
+  const april = parseDateRange("april", now);
+  assert.equal(april.label, "April 2026");
+  assert.equal(april.start?.toISOString(), "2026-04-01T00:00:00.000Z");
+  assert.equal(april.end?.toISOString(), "2026-05-01T00:00:00.000Z");
+
+  const may = parseDateRange("may", now);
+  assert.equal(may.label, "May 2025");
+  assert.equal(may.start?.toISOString(), "2025-05-01T00:00:00.000Z");
+  assert.equal(may.end?.toISOString(), "2025-06-01T00:00:00.000Z");
+});
+
 test("scan command and xlsx export work against fixtures", async () => {
   const tmp = await mkdtemp(join(tmpdir(), "codex-cost-"));
   try {
@@ -100,6 +127,10 @@ test("scan command and xlsx export work against fixtures", async () => {
     const { execFileSync } = await import("node:child_process");
     const scanOut = execFileSync(process.execPath, [resolve("src/cli.ts"), "scan", "--json"], { cwd: tmp, encoding: "utf8" });
     assert.equal(JSON.parse(scanOut).events, 4);
+    const ratesOut = execFileSync(process.execPath, [resolve("src/cli.ts"), "rates"], { cwd: tmp, encoding: "utf8" });
+    assert.match(ratesOut, /Rate card/);
+    assert.match(ratesOut, /gpt-5\.4-mini/);
+    assert.ok(ratesOut.indexOf("gpt-5.5") < ratesOut.indexOf("gpt-5.4"));
     execFileSync(process.execPath, [resolve("src/cli.ts"), "export"], { cwd: tmp, encoding: "utf8" });
     const { readdir } = await import("node:fs/promises");
     assert.equal((await readdir(tmp)).some((name) => /^codex-cost-report-.+\.xlsx$/.test(name)), true);

@@ -38,6 +38,22 @@ Interactive picker:
 codex-cost
 ```
 
+Interactive mode starts with:
+
+- Report
+- Export
+- Rates
+
+Report mode asks for a date range before scanning:
+
+- All time
+- Past 1 day
+- Past 1 week
+- Past 1 month
+- Specific month
+
+Export mode prompts for format, date range, and filename. The filename prompt includes a timestamped default.
+
 Terminal reports:
 
 ```bash
@@ -50,9 +66,19 @@ Exports:
 ```bash
 codex-cost export
 codex-cost export --out report.xlsx
+codex-cost export --range 1w
+codex-cost export --range april
 codex-cost export --format xlsx --out report.xlsx
 codex-cost export --format csv --out report.csv
 codex-cost export --format json --out report.json
+```
+
+`--range` accepts `all`, `1d`, `1w`, `1m`, or a month name. Month names resolve to the nearest current or past month, so `may` in April 2026 resolves to May 2025.
+
+Rate card:
+
+```bash
+codex-cost rates
 ```
 
 Debug scan:

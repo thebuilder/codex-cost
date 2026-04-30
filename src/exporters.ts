@@ -40,6 +40,24 @@ export function terminalThreadReport(thread: ThreadReport, currency: string): st
   ].join("\n");
 }
 
+export function terminalRateCard(config: CodexCostConfig, currency: string): string {
+  const table = new Table({
+    head: ["Model", "Input /M", "Cached /M", "Output /M", "Reasoning /M"].map((label) => pc.bold(label)),
+    chars: minimalTableChars(),
+    style: { head: [], border: [] }
+  });
+  for (const [model, rate] of Object.entries(allRateCards(config)).sort(([left], [right]) => compareRateModels(left, right))) {
+    table.push([
+      model,
+      formatRate(rate.inputPerMillion, currency),
+      formatRate(rate.cachedInputPerMillion, currency),
+      formatRate(rate.outputPerMillion, currency),
+      rate.reasoningOutputPerMillion === undefined ? pc.dim("same as output") : formatRate(rate.reasoningOutputPerMillion, currency)
+    ]);
+  }
+  return [title("Rate card"), table.toString()].join("\n");
+}
+
 export async function writeJson(path: string, reports: ProjectReport[]): Promise<void> {
   await writeFile(path, `${JSON.stringify({ projects: reports.map(jsonProject) }, null, 2)}\n`);
 }
@@ -157,7 +175,7 @@ function metaTable(rows: Array<[string, string]>): string {
   const table = new Table({
     chars: minimalTableChars(),
     style: { head: [], border: [] },
-    colWidths: [14, Math.max(40, terminalWidth() - 18)],
+    colWidths: [14, Math.min(96, Math.max(40, terminalWidth() - 18))],
     wordWrap: true
   });
   for (const [label, value] of rows) {
@@ -184,7 +202,7 @@ function tokenTable(totals: ThreadReport["tokenTotals"]): string {
 }
 
 function threadSummaryTable(threads: ThreadReport[], currency: string): string {
-  const visibleThreads = [...threads].sort((a, b) => b.estimatedDollars - a.estimatedDollars).slice(0, 25);
+  const visibleThreads = [...threads].sort((a, b) => b.estimatedDollars - a.estimatedDollars).slice(0, 50);
   const widths = threadTableWidths(visibleThreads, currency);
   const table = new Table({
     head: ["Thread", "Cost", "Tokens", "Models"].map((label) => pc.bold(label)),
@@ -207,7 +225,7 @@ function threadSummaryTable(threads: ThreadReport[], currency: string): string {
 
 function threadTableWidths(threads: ThreadReport[], currency: string): [number, number, number, number] {
   const gapWidth = 6;
-  const available = Math.max(90, terminalWidth()) - gapWidth;
+  const available = Math.min(132, Math.max(90, terminalWidth())) - gapWidth;
   const costWidth = clamp(
     Math.max(12, ...threads.map((thread) => formatMoney(thread.estimatedDollars, currency).length + 2)),
     14,
@@ -215,7 +233,7 @@ function threadTableWidths(threads: ThreadReport[], currency: string): [number, 
   );
   const tokenWidth = clamp(
     Math.max(10, ...threads.map((thread) => formatInteger(thread.tokenTotals.totalTokens).length + 2)),
-    14,
+    16,
     20
   );
   const modelWidth = clamp(
@@ -233,6 +251,21 @@ function terminalWidth(): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function compareRateModels(left: string, right: string): number {
+  const leftParts = parseGptVersion(left);
+  const rightParts = parseGptVersion(right);
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index++) {
+    const diff = (rightParts[index] ?? 0) - (leftParts[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return left.localeCompare(right);
+}
+
+function parseGptVersion(model: string): number[] {
+  const match = /^gpt-(\d+(?:\.\d+)*)/.exec(model);
+  return match ? match[1].split(".").map(Number) : [];
 }
 
 function minimalTableChars() {
@@ -388,5 +421,10 @@ function csvCell(value: string): string {
 }
 
 function formatMoney(value: number, currency: string): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 6 }).format(value);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+}
+
+function formatRate(value: number | undefined, currency: string): string {
+  if (value === undefined) return "";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(value);
 }
