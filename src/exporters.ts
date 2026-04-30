@@ -9,13 +9,12 @@ import type { ProjectReport, ThreadReport, UsageEvent } from "./types.ts";
 export function terminalProjectReport(project: ProjectReport, currency: string): string {
   return [
     title(project.projectName),
-    metaTable([
+    metaTable(withUnknownModelWarning(project.unpriced, [
       ["Project", project.projectId],
       ["Range", formatRange(project.timeRange)],
       ["Threads", formatInteger(project.threadCount)],
-      ["Estimated", pc.green(formatMoney(project.estimatedDollars, currency))],
-      ["Unpriced", formatUnpriced(project.unpriced)]
-    ]),
+      ["Estimated", pc.green(formatMoney(project.estimatedDollars, currency))]
+    ])),
     "",
     tokenTable(project.tokenTotals),
     "",
@@ -26,15 +25,14 @@ export function terminalProjectReport(project: ProjectReport, currency: string):
 export function terminalThreadReport(thread: ThreadReport, currency: string): string {
   return [
     title(thread.name),
-    metaTable([
+    metaTable(withUnknownModelWarning(thread.unpriced, [
       ["Project", `${thread.projectName} (${thread.projectId})`],
       ["cwd", thread.cwd || "n/a"],
       ["Range", formatRange(thread.timeRange)],
       ["Models", thread.models.join(", ") || "unknown"],
       ["Plan", thread.planTypes.join(", ") || "unknown"],
-      ["Estimated", pc.green(formatMoney(thread.estimatedDollars, currency))],
-      ["Unpriced", formatUnpriced(thread.unpriced)]
-    ]),
+      ["Estimated", pc.green(formatMoney(thread.estimatedDollars, currency))]
+    ])),
     "",
     tokenTable(thread.tokenTotals)
   ].join("\n");
@@ -303,8 +301,9 @@ function formatInteger(value: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
-function formatUnpriced(models: string[]): string {
-  return models.length ? pc.yellow(models.join(", ")) : pc.dim("none");
+function withUnknownModelWarning(models: string[], rows: Array<[string, string]>): Array<[string, string]> {
+  if (!models.length) return rows;
+  return [...rows, ["Warning", pc.yellow(`Unknown model rate: ${models.join(", ")}`)]];
 }
 
 function jsonProject(project: ProjectReport) {

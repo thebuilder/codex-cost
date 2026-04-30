@@ -2,7 +2,13 @@
 
 Local CLI for estimating Codex usage cost from JSONL session files.
 
-It reads local Codex thread history, attributes usage to projects, prices token usage from an editable rate card, and exports terminal, JSON, CSV, and Excel reports.
+**Features**
+
+- See Codex usage and estimated cost by project or thread
+- Attribute work to projects and clients automatically
+- Filter reports by recent ranges or month names
+- Export clean JSON, CSV, and Excel reports
+- Tune pricing with an editable rate card
 
 ## Requirements
 
@@ -15,19 +21,6 @@ From npm:
 
 ```bash
 npm install -g codex-cost
-```
-
-From a packed tarball:
-
-```bash
-npm install -g ./codex-cost-0.1.0.tgz
-```
-
-For local development:
-
-```bash
-pnpm install
-pnpm codex-cost scan --json
 ```
 
 ## Usage
