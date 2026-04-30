@@ -168,7 +168,7 @@ test("scan command and xlsx export work against fixtures", async () => {
     const threads = workbook.getWorksheet("Threads");
     assert.ok(threads);
     const threadHeaders = (threads.getRow(1).values as unknown[]).slice(1);
-    assert.deepEqual(threadHeaders, ["Project", "Thread", "Work Time", "Models", "Plan Types", "Input", "Cached", "Output", "Reasoning", "Estimated Dollars"]);
+    assert.deepEqual(threadHeaders, ["Project", "Thread", "Work Time", "Cost / Hour", "Models", "Plan Types", "Input", "Cached", "Output", "Reasoning", "Estimated Dollars"]);
     const { readFile } = await import("node:fs/promises");
     assert.deepEqual((await readFile(csvPath, "utf8")).split("\n")[0].split(","), threadHeaders);
     assert.equal(threadHeaders.includes("Project ID"), false);
@@ -183,15 +183,18 @@ test("scan command and xlsx export work against fixtures", async () => {
     assert.equal(workbook.getWorksheet("RawEvents"), undefined);
     assert.equal(workbook.getWorksheet("Turns")?.getCell("C2").value, "1m 0s");
     assert.match((workbook.getWorksheet("Turns")?.getCell("L2").value as { formula?: string }).formula ?? "", /VLOOKUP\(F2,RateCard!\$A:\$E,2,FALSE\)/);
-    assert.match((threads.getCell("J2").value as { formula?: string }).formula ?? "", /SUMIF\(Turns!\$D:\$D,B2,Turns!\$L:\$L\)/);
-    assert.match((workbook.getWorksheet("Projects")?.getCell("J2").value as { formula?: string }).formula ?? "", /SUMIF\(Threads!\$A:\$A,A2,Threads!\$J:\$J\)/);
-    assert.match((summary.getCell("H2").value as { formula?: string }).formula ?? "", /SUMIF\(Projects!\$A:\$A,A2,Projects!\$J:\$J\)/);
+    assert.match((threads.getCell("K2").value as { formula?: string }).formula ?? "", /SUMIF\(Turns!\$D:\$D,B2,Turns!\$L:\$L\)/);
+    assert.match((workbook.getWorksheet("Projects")?.getCell("K2").value as { formula?: string }).formula ?? "", /SUMIF\(Threads!\$A:\$A,A2,Threads!\$K:\$K\)/);
+    assert.match((summary.getCell("I2").value as { formula?: string }).formula ?? "", /SUMIF\(Projects!\$A:\$A,A2,Projects!\$K:\$K\)/);
     assert.equal(workbook.getWorksheet("RateCard")?.getCell("B2").numFmt, "$#,##0.000");
     assert.equal(workbook.getWorksheet("Turns")?.getCell("L2").numFmt, "$#,##0.000000");
-    assert.equal(threads.getCell("J2").numFmt, "$#,##0.000000");
-    assert.equal(threads.getCell("J2").fill.type, "pattern");
-    assert.equal(workbook.getWorksheet("Projects")?.getCell("J2").numFmt, "$#,##0.000000");
-    assert.equal(summary.getCell("H2").numFmt, "$#,##0.000000");
+    assert.equal(threads.getCell("D2").numFmt, "$#,##0.000000");
+    assert.equal(threads.getCell("K2").numFmt, "$#,##0.000000");
+    assert.equal(threads.getCell("K2").fill.type, "pattern");
+    assert.equal(workbook.getWorksheet("Projects")?.getCell("E2").numFmt, "$#,##0.000000");
+    assert.equal(workbook.getWorksheet("Projects")?.getCell("K2").numFmt, "$#,##0.000000");
+    assert.equal(summary.getCell("D2").numFmt, "$#,##0.000000");
+    assert.equal(summary.getCell("I2").numFmt, "$#,##0.000000");
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }

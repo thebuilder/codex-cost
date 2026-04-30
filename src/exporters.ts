@@ -13,6 +13,7 @@ export function terminalProjectReport(project: ProjectReport, currency: string):
       ["Project", project.projectId],
       ["Range", formatRange(project.timeRange)],
       ["Work time", formatDuration(project.durationMs)],
+      ["Cost / hour", formatCostPerHour(project.estimatedDollars, project.durationMs, currency)],
       ["Threads", formatInteger(project.threadCount)],
       ["Estimated", pc.green(formatMoney(project.estimatedDollars, currency))]
     ])),
@@ -31,6 +32,7 @@ export function terminalThreadReport(thread: ThreadReport, currency: string): st
       ["cwd", thread.cwd || "n/a"],
       ["Range", formatRange(thread.timeRange)],
       ["Work time", formatDuration(thread.durationMs)],
+      ["Cost / hour", formatCostPerHour(thread.estimatedDollars, thread.durationMs, currency)],
       ["Models", thread.models.join(", ") || "unknown"],
       ["Plan", thread.planTypes.join(", ") || "unknown"],
       ["Estimated", pc.green(formatMoney(thread.estimatedDollars, currency))]
@@ -64,13 +66,14 @@ export async function writeJson(path: string, reports: ProjectReport[]): Promise
 
 export async function writeCsv(path: string, reports: ProjectReport[]): Promise<void> {
   const rows = [
-    ["Project", "Thread", "Work Time", "Models", "Plan Types", "Input", "Cached", "Output", "Reasoning", "Estimated Dollars"]
+    ["Project", "Thread", "Work Time", "Cost / Hour", "Models", "Plan Types", "Input", "Cached", "Output", "Reasoning", "Estimated Dollars"]
   ];
   for (const thread of reports.flatMap((project) => project.threads)) {
     rows.push([
       thread.projectName,
       thread.name,
       formatDuration(thread.durationMs),
+      String(costPerHour(thread.estimatedDollars, thread.durationMs) ?? ""),
       thread.models.join(";"),
       thread.planTypes.join(";"),
       String(thread.tokenTotals.inputTokens),
@@ -92,28 +95,29 @@ export async function writeXlsx(path: string, reports: ProjectReport[], config: 
   const events = threads.flatMap((thread) => thread.events.map((event) => ({ event, thread })));
 
   const summary = workbook.addWorksheet("Summary");
-  addTable(summary, "SummaryTable", ["Project", "Threads", "Work Time", "Input", "Cached", "Output", "Reasoning", "Estimated Dollars"], reports.map((project, index) => summaryRow(project, index + 2)));
+  addTable(summary, "SummaryTable", ["Project", "Threads", "Work Time", "Cost / Hour", "Input", "Cached", "Output", "Reasoning", "Estimated Dollars"], reports.map((project, index) => summaryRow(project, index + 2)));
   summary.addRow([
     "Grand Total",
     { formula: `SUM(B2:B${summaryLastProjectRow})` },
     formatDuration(sum(reports.map((project) => project.durationMs))),
-    { formula: `SUM(D2:D${summaryLastProjectRow})` },
+    costPerHour(sum(reports.map((project) => project.estimatedDollars)), sum(reports.map((project) => project.durationMs))) ?? "",
     { formula: `SUM(E2:E${summaryLastProjectRow})` },
     { formula: `SUM(F2:F${summaryLastProjectRow})` },
     { formula: `SUM(G2:G${summaryLastProjectRow})` },
-    { formula: `SUM(H2:H${summaryLastProjectRow})` }
+    { formula: `SUM(H2:H${summaryLastProjectRow})` },
+    { formula: `SUM(I2:I${summaryLastProjectRow})` }
   ]);
 
   addTable(
     workbook.addWorksheet("Projects"),
     "ProjectsTable",
-    ["Project Name", "Start", "End", "Work Time", "Threads", "Input", "Cached", "Output", "Reasoning", "Estimated Dollars"],
+    ["Project Name", "Start", "End", "Work Time", "Cost / Hour", "Threads", "Input", "Cached", "Output", "Reasoning", "Estimated Dollars"],
     reports.map((project, index) => projectRow(project, index + 2))
   );
   addTable(
     workbook.addWorksheet("Threads"),
     "ThreadsTable",
-    ["Project", "Thread", "Work Time", "Models", "Plan Types", "Input", "Cached", "Output", "Reasoning", "Estimated Dollars"],
+    ["Project", "Thread", "Work Time", "Cost / Hour", "Models", "Plan Types", "Input", "Cached", "Output", "Reasoning", "Estimated Dollars"],
     threads.map((thread, index) => threadRow(thread, index + 2))
   );
   addTable(
@@ -130,29 +134,29 @@ export async function writeXlsx(path: string, reports: ProjectReport[], config: 
   );
 
   styleWorkbook(workbook);
-  formatColumn(summary, 8, "$#,##0.000000");
-  formatColumns(summary, [2, 4, 5, 6, 7], "#,##0");
-  formatColumns(workbook.getWorksheet("Projects"), [5, 6, 7, 8, 9], "#,##0");
-  formatColumns(workbook.getWorksheet("Threads"), [6, 7, 8, 9], "#,##0");
+  formatColumns(summary, [4, 9], "$#,##0.000000");
+  formatColumns(summary, [2, 5, 6, 7, 8], "#,##0");
+  formatColumns(workbook.getWorksheet("Projects"), [6, 7, 8, 9, 10], "#,##0");
+  formatColumns(workbook.getWorksheet("Threads"), [7, 8, 9, 10], "#,##0");
   formatColumns(workbook.getWorksheet("Turns"), [8, 9, 10, 11], "#,##0");
   formatColumns(workbook.getWorksheet("Projects"), [2, 3], "yyyy-mm-dd");
   formatColumns(workbook.getWorksheet("Turns"), [1, 2], "yyyy-mm-dd hh:mm:ss");
-  formatColumn(workbook.getWorksheet("Projects"), 10, "$#,##0.000000");
-  formatColumn(workbook.getWorksheet("Threads"), 10, "$#,##0.000000");
+  formatColumns(workbook.getWorksheet("Projects"), [5, 11], "$#,##0.000000");
+  formatColumns(workbook.getWorksheet("Threads"), [4, 11], "$#,##0.000000");
   formatColumn(workbook.getWorksheet("Turns"), 12, "$#,##0.000000");
   for (const column of [2, 3, 4, 5]) {
     formatColumn(workbook.getWorksheet("RateCard"), column, "$#,##0.000");
   }
-  flagUnpricedCostCells(workbook.getWorksheet("Projects"), reports, 10);
-  flagUnpricedCostCells(workbook.getWorksheet("Threads"), threads, 10);
+  flagUnpricedCostCells(workbook.getWorksheet("Projects"), reports, 11);
+  flagUnpricedCostCells(workbook.getWorksheet("Threads"), threads, 11);
   await workbook.xlsx.writeFile(path);
 }
 
 function styleWorkbook(workbook: ExcelJS.Workbook): void {
   const widths: Record<string, number[]> = {
-    Summary: [28, 12, 14, 16, 16, 16, 16, 18],
-    Projects: [28, 14, 14, 14, 12, 16, 16, 16, 16, 18],
-    Threads: [22, 36, 14, 28, 22, 16, 16, 16, 16, 18],
+    Summary: [28, 12, 14, 16, 16, 16, 16, 16, 18],
+    Projects: [28, 14, 14, 14, 16, 12, 16, 16, 16, 16, 18],
+    Threads: [22, 36, 14, 16, 28, 22, 16, 16, 16, 16, 18],
     Turns: [22, 22, 14, 36, 28, 20, 18, 16, 16, 16, 16, 18],
     RateCard: [24, 16, 18, 16, 20]
   };
@@ -175,7 +179,7 @@ function styleWorkbook(workbook: ExcelJS.Workbook): void {
   boldColumn(workbook.getWorksheet("Projects"), 1);
   const total = summary?.lastRow;
   if (total) {
-    for (let columnNumber = 1; columnNumber <= 8; columnNumber++) {
+    for (let columnNumber = 1; columnNumber <= 9; columnNumber++) {
       const cell = total.getCell(columnNumber);
       cell.font = { bold: true };
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEFF6FF" } };
@@ -271,7 +275,7 @@ function threadSummaryTable(threads: ThreadReport[], currency: string): string {
   const visibleThreads = [...threads].sort((a, b) => b.estimatedDollars - a.estimatedDollars).slice(0, 50);
   const widths = threadTableWidths(visibleThreads, currency);
   const table = new Table({
-    head: ["Thread", "Cost", "Tokens", "Time", "Models"].map((label) => pc.bold(label)),
+    head: ["Thread", "Cost", "$/h", "Tokens", "Time", "Models"].map((label) => pc.bold(label)),
     chars: minimalTableChars(),
     style: { head: [], border: [] },
     colWidths: widths,
@@ -281,6 +285,7 @@ function threadSummaryTable(threads: ThreadReport[], currency: string): string {
     table.push([
       thread.name,
       pc.green(formatMoney(thread.estimatedDollars, currency)),
+      formatCostPerHour(thread.estimatedDollars, thread.durationMs, currency),
       formatInteger(thread.tokenTotals.totalTokens),
       formatDuration(thread.durationMs),
       thread.models.join(", ")
@@ -290,7 +295,7 @@ function threadSummaryTable(threads: ThreadReport[], currency: string): string {
   return hiddenCount > 0 ? `${table.toString()}\n${pc.dim(`Showing top ${visibleThreads.length} threads by cost. ${hiddenCount} more in exports.`)}` : table.toString();
 }
 
-function threadTableWidths(threads: ThreadReport[], currency: string): [number, number, number, number, number] {
+function threadTableWidths(threads: ThreadReport[], currency: string): [number, number, number, number, number, number] {
   const gapWidth = 6;
   const available = Math.min(132, Math.max(90, terminalWidth())) - gapWidth;
   const costWidth = clamp(
@@ -303,14 +308,19 @@ function threadTableWidths(threads: ThreadReport[], currency: string): [number, 
     16,
     20
   );
+  const costPerHourWidth = clamp(
+    Math.max(8, ...threads.map((thread) => formatCostPerHour(thread.estimatedDollars, thread.durationMs, currency).length + 2)),
+    10,
+    16
+  );
   const modelWidth = clamp(
     Math.max(16, ...threads.map((thread) => thread.models.join(", ").length + 2)),
     20,
     38
   );
   const timeWidth = 12;
-  const threadWidth = Math.max(24, available - costWidth - tokenWidth - timeWidth - modelWidth);
-  return [threadWidth, costWidth, tokenWidth, timeWidth, modelWidth];
+  const threadWidth = Math.max(24, available - costWidth - costPerHourWidth - tokenWidth - timeWidth - modelWidth);
+  return [threadWidth, costWidth, costPerHourWidth, tokenWidth, timeWidth, modelWidth];
 }
 
 function terminalWidth(): number {
@@ -434,11 +444,12 @@ function summaryRow(project: ProjectReport, rowNumber: number): any[] {
     project.projectName,
     project.threadCount,
     formatDuration(project.durationMs),
+    costPerHour(project.estimatedDollars, project.durationMs) ?? "",
     project.tokenTotals.inputTokens,
     project.tokenTotals.cachedInputTokens,
     project.tokenTotals.outputTokens,
     project.tokenTotals.reasoningOutputTokens,
-    { formula: `SUMIF(Projects!$A:$A,A${rowNumber},Projects!$J:$J)` }
+    { formula: `SUMIF(Projects!$A:$A,A${rowNumber},Projects!$K:$K)` }
   ];
 }
 
@@ -448,12 +459,13 @@ function projectRow(project: ProjectReport, rowNumber: number): any[] {
     project.timeRange.start,
     project.timeRange.end,
     formatDuration(project.durationMs),
+    costPerHour(project.estimatedDollars, project.durationMs) ?? "",
     project.threadCount,
     project.tokenTotals.inputTokens,
     project.tokenTotals.cachedInputTokens,
     project.tokenTotals.outputTokens,
     project.tokenTotals.reasoningOutputTokens,
-    { formula: `SUMIF(Threads!$A:$A,A${rowNumber},Threads!$J:$J)` }
+    { formula: `SUMIF(Threads!$A:$A,A${rowNumber},Threads!$K:$K)` }
   ];
 }
 
@@ -462,6 +474,7 @@ function threadRow(thread: ThreadReport, rowNumber: number): any[] {
     thread.projectName,
     thread.name,
     formatDuration(thread.durationMs),
+    costPerHour(thread.estimatedDollars, thread.durationMs) ?? "",
     thread.models.join("; "),
     thread.planTypes.join("; "),
     thread.tokenTotals.inputTokens,
@@ -508,6 +521,16 @@ function csvCell(value: string): string {
 
 function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
+}
+
+function costPerHour(cost: number, durationMs: number): number | null {
+  if (durationMs <= 0) return null;
+  return cost / (durationMs / 3_600_000);
+}
+
+function formatCostPerHour(cost: number, durationMs: number, currency: string): string {
+  const value = costPerHour(cost, durationMs);
+  return value === null ? "n/a" : formatMoney(value, currency);
 }
 
 function formatMoney(value: number, currency: string): string {
