@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { input, select } from "@inquirer/prompts";
 import { Command } from "commander";
 import ora from "ora";
-import { scanCodex } from "./codex-parser.ts";
+import { scanCodex, scanCodexIndex, type ScanOptions } from "./codex-parser.ts";
 import { loadConfig } from "./config.ts";
 import { dateRangeFromPreset, filterEventsByDateRange, parseDateRange, type DateRange, type DateRangePreset } from "./date-range.ts";
 import { terminalProjectReport, terminalRateCard, terminalThreadReport, writeCsv, writeJson, writeXlsx } from "./exporters.ts";
@@ -45,19 +45,21 @@ program.command("rates").description("Print the active rate card").action(() => 
 
 async function runInteractiveReport() {
   const dateRange = await selectDateRange();
-  const { scan, config } = await loadScan({ status: true });
-  const events = filterEventsByDateRange(scan.events, dateRange);
-  const reports = buildReports(events, config, scan.threadNames);
-  if (reports.length === 0) {
-    console.log(`No usage found for ${dateRange.label}.`);
+  const { config, index } = await loadIndex({ status: true });
+  if (index.projects.length === 0) {
+    console.log("No Codex projects found.");
     return;
   }
   const projectId = await select({
     message: `Select project (${dateRange.label})`,
-    choices: reports.map((project) => ({ name: `${project.projectName} (${project.threadCount} threads)`, value: project.projectId }))
+    choices: index.projects.map((project) => ({ name: `${project.projectName} (${project.threadCount} threads)`, value: project.projectId }))
   });
+  const { reports } = await loadReports({ status: true, dateRange, scanOptions: { projectId } });
   const project = reports.find((candidate) => candidate.projectId === projectId);
-  if (!project) throw new Error(`Project not found: ${projectId}`);
+  if (!project) {
+    console.log(`No usage found for ${projectId} in ${dateRange.label}.`);
+    return;
+  }
   const threadId = await select({
     message: "Select thread",
     choices: [
@@ -104,7 +106,8 @@ program.command("scan").option("--json", "print JSON").description("Debug parsed
 });
 
 program.command("report").option("--project <id>").option("--thread <thread-id>").description("Print a terminal report").action(async (options) => {
-  const { reports, config } = await loadReports({ status: true });
+  const scanOptions: ScanOptions = options.thread ? { threadId: options.thread } : options.project ? { projectId: options.project } : {};
+  const { reports, config } = await loadReports({ status: true, scanOptions });
   if (options.thread) {
     const thread = reports.flatMap((project) => project.threads).find((candidate) => candidate.threadId === options.thread);
     if (!thread) throw new Error(`Thread not found: ${options.thread}`);
@@ -170,7 +173,7 @@ async function selectDateRange(): Promise<DateRange> {
   );
 }
 
-async function loadReports(options: { status?: boolean; dateRange?: ReturnType<typeof parseDateRange> } = {}) {
+async function loadReports(options: { status?: boolean; dateRange?: ReturnType<typeof parseDateRange>; scanOptions?: ScanOptions } = {}) {
   const { config, scan } = await loadScan(options);
   const events = options.dateRange ? filterEventsByDateRange(scan.events, options.dateRange) : scan.events;
   const spinner = options.status ? startSpinner(`Building reports from ${events.length} usage events`) : null;
@@ -184,16 +187,30 @@ async function loadReports(options: { status?: boolean; dateRange?: ReturnType<t
   }
 }
 
-async function loadScan(options: { status?: boolean } = {}) {
+async function loadScan(options: { status?: boolean; scanOptions?: ScanOptions } = {}) {
   const spinner = options.status ? startSpinner("Loading configuration") : null;
   try {
     const config = loadConfig();
     spinner?.setText("Scanning Codex sessions");
-    const scan = await scanCodex(config);
+    const scan = await scanCodex(config, options.scanOptions);
     spinner?.succeed(`Scanned ${scan.filesRead} files and ${scan.events.length} usage events`);
     return { config, scan };
   } catch (error) {
     spinner?.fail("Failed to scan Codex sessions");
+    throw error;
+  }
+}
+
+async function loadIndex(options: { status?: boolean } = {}) {
+  const spinner = options.status ? startSpinner("Loading configuration") : null;
+  try {
+    const config = loadConfig();
+    spinner?.setText("Indexing Codex sessions");
+    const index = await scanCodexIndex(config);
+    spinner?.succeed(`Indexed ${index.filesRead} files and ${index.projects.length} projects`);
+    return { config, index };
+  } catch (error) {
+    spinner?.fail("Failed to index Codex sessions");
     throw error;
   }
 }

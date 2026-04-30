@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { scanCodex } from "../src/codex-parser.ts";
+import { scanCodex, scanCodexIndex } from "../src/codex-parser.ts";
 import type { CodexCostConfig } from "../src/config.ts";
 import { filterEventsByDateRange, parseDateRange } from "../src/date-range.ts";
 import { allRateCards, buildReports } from "../src/pricing.ts";
@@ -121,6 +121,27 @@ test("ignores stale usage timing gaps", async () => {
   const reports = buildReports(scan.events, fixtureConfig(), scan.threadNames);
   const thread = reports.flatMap((project) => project.threads).find((candidate) => candidate.threadId === "fixture-thread");
   assert.equal(thread?.durationMs, 120_000);
+});
+
+test("can scan only one project or thread", async () => {
+  const projectScan = await scanCodex(fixtureConfig(), { projectId: "client-b" });
+  assert.deepEqual(projectScan.events.map((event) => event.threadId), ["credit-thread"]);
+
+  const threadScan = await scanCodex(fixtureConfig(), { threadId: "fixture-thread" });
+  assert.equal(threadScan.events.length, 3);
+  assert.equal(threadScan.events.every((event) => event.threadId === "fixture-thread"), true);
+});
+
+test("indexes projects without parsing usage events", async () => {
+  const index = await scanCodexIndex(fixtureConfig());
+  assert.equal(index.filesRead, 3);
+  assert.deepEqual(
+    index.projects.map((project) => [project.projectId, project.threadCount]),
+    [
+      ["client-a", 2],
+      ["client-b", 1]
+    ]
+  );
 });
 
 test("scan command and xlsx export work against fixtures", async () => {

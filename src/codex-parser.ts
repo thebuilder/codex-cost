@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, promises as fs } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
-import type { CodexCostConfig } from "./config.ts";
+import { projectForThread, type CodexCostConfig } from "./config.ts";
 import type { ScanResult, UsageEvent } from "./types.ts";
 
 type ThreadState = {
@@ -16,9 +16,20 @@ type ThreadState = {
   credits?: UsageEvent["credits"];
 };
 
+export type ScanOptions = {
+  projectId?: string;
+  threadId?: string;
+};
+
+export type CodexIndex = {
+  filesRead: number;
+  threadNames: Map<string, string>;
+  projects: Array<{ projectId: string; projectName: string; threadCount: number }>;
+};
+
 const maxUsageGapMs = 30 * 60 * 1000;
 
-export async function scanCodex(config: CodexCostConfig): Promise<ScanResult> {
+export async function scanCodex(config: CodexCostConfig, options: ScanOptions = {}): Promise<ScanResult> {
   const threadNames = await readThreadNames(join(config.codexHome, "session_index.jsonl"));
   const files = [
     ...(await findJsonlFiles(join(config.codexHome, "sessions"))),
@@ -44,6 +55,7 @@ export async function scanCodex(config: CodexCostConfig): Promise<ScanResult> {
         state.cwd = stringValue(payload.cwd) ?? stringValue(payload.working_dir) ?? state.cwd;
         state.planType = readPlanType(payload) ?? state.planType;
         state.credits = readCredits(payload) ?? state.credits ?? null;
+        if (shouldSkipRemainingFile(config, state, options)) break;
         continue;
       }
       if (type === "turn_context") {
@@ -56,6 +68,7 @@ export async function scanCodex(config: CodexCostConfig): Promise<ScanResult> {
         state.lastUsageAt = undefined;
         state.planType = readPlanType(payload) ?? state.planType;
         state.credits = readCredits(payload) ?? state.credits ?? null;
+        if (shouldSkipRemainingFile(config, state, options)) break;
         continue;
       }
       if (type === "thread_name_updated") {
@@ -73,6 +86,7 @@ export async function scanCodex(config: CodexCostConfig): Promise<ScanResult> {
         skippedRecords++;
         continue;
       }
+      if (!matchesScanOptions(config, state, threadId, options)) continue;
       const timestamp = stringValue(record.timestamp) ?? stringValue(record.payload.timestamp) ?? "";
       const dedupeKey = `${threadId}:${timestamp}:${JSON.stringify(usage)}`;
       if (seen.has(dedupeKey)) {
@@ -108,6 +122,67 @@ export async function scanCodex(config: CodexCostConfig): Promise<ScanResult> {
   }
 
   return { events, skippedRecords, duplicateRecords, filesRead: files.length, threadNames };
+}
+
+export async function scanCodexIndex(config: CodexCostConfig): Promise<CodexIndex> {
+  const threadNames = await readThreadNames(join(config.codexHome, "session_index.jsonl"));
+  const files = [
+    ...(await findJsonlFiles(join(config.codexHome, "sessions"))),
+    ...(await findJsonlFiles(join(config.codexHome, "archived_sessions")))
+  ];
+  const projects = new Map<string, { projectId: string; projectName: string; threadIds: Set<string> }>();
+
+  for (const file of files) {
+    const state: ThreadState = {};
+    for await (const record of readJsonl(file)) {
+      if (!record) continue;
+      const type = record.type;
+      if (type === "session_meta") {
+        const payload = record.payload ?? record;
+        state.threadId = stringValue(payload.id) ?? state.threadId;
+        state.cwd = stringValue(payload.cwd) ?? stringValue(payload.working_dir) ?? state.cwd;
+      } else if (type === "turn_context") {
+        const payload = record.payload ?? record;
+        state.cwd = stringValue(payload.cwd) ?? state.cwd;
+        state.threadId = stringValue(payload.thread_id) ?? state.threadId;
+      } else if (type === "thread_name_updated") {
+        const payload = record.payload ?? record;
+        const id = stringValue(payload.thread_id) ?? state.threadId;
+        const name = stringValue(payload.name) ?? stringValue(payload.thread_name);
+        if (id && name) threadNames.set(id, name);
+      }
+
+      if (state.threadId && state.cwd) {
+        const project = projectForThread(config, state.threadId, state.cwd);
+        const existing = projects.get(project.id) ?? { projectId: project.id, projectName: project.name, threadIds: new Set<string>() };
+        existing.threadIds.add(state.threadId);
+        projects.set(project.id, existing);
+        break;
+      }
+    }
+  }
+
+  return {
+    filesRead: files.length,
+    threadNames,
+    projects: Array.from(projects.values(), (project) => ({
+      projectId: project.projectId,
+      projectName: project.projectName,
+      threadCount: project.threadIds.size
+    })).sort((left, right) => left.projectName.localeCompare(right.projectName))
+  };
+}
+
+function matchesScanOptions(config: CodexCostConfig, state: ThreadState, threadId: string, options: ScanOptions): boolean {
+  if (options.threadId && threadId !== options.threadId) return false;
+  if (options.projectId && projectForThread(config, threadId, state.cwd).id !== options.projectId) return false;
+  return true;
+}
+
+function shouldSkipRemainingFile(config: CodexCostConfig, state: ThreadState, options: ScanOptions): boolean {
+  if (options.threadId && state.threadId && state.threadId !== options.threadId) return true;
+  if (!options.projectId || !state.threadId || !state.cwd) return false;
+  return projectForThread(config, state.threadId, state.cwd).id !== options.projectId;
 }
 
 async function readThreadNames(path: string): Promise<Map<string, string>> {
