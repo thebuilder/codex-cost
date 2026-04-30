@@ -48,6 +48,8 @@ codex-cost report --thread <thread-id>
 Exports:
 
 ```bash
+codex-cost export
+codex-cost export --out report.xlsx
 codex-cost export --format xlsx --out report.xlsx
 codex-cost export --format csv --out report.csv
 codex-cost export --format json --out report.json

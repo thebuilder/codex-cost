@@ -100,8 +100,11 @@ test("scan command and xlsx export work against fixtures", async () => {
     const { execFileSync } = await import("node:child_process");
     const scanOut = execFileSync(process.execPath, [resolve("src/cli.ts"), "scan", "--json"], { cwd: tmp, encoding: "utf8" });
     assert.equal(JSON.parse(scanOut).events, 4);
+    execFileSync(process.execPath, [resolve("src/cli.ts"), "export"], { cwd: tmp, encoding: "utf8" });
+    const { readdir } = await import("node:fs/promises");
+    assert.equal((await readdir(tmp)).some((name) => /^codex-cost-report-.+\.xlsx$/.test(name)), true);
     const xlsxPath = join(tmp, "report.xlsx");
-    execFileSync(process.execPath, [resolve("src/cli.ts"), "export", "--format", "xlsx", "--out", xlsxPath], { cwd: tmp, encoding: "utf8" });
+    execFileSync(process.execPath, [resolve("src/cli.ts"), "export", "--out", xlsxPath], { cwd: tmp, encoding: "utf8" });
     const csvPath = join(tmp, "report.csv");
     execFileSync(process.execPath, [resolve("src/cli.ts"), "export", "--format", "csv", "--out", csvPath], { cwd: tmp, encoding: "utf8" });
     const { existsSync } = await import("node:fs");

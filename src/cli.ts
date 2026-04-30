@@ -62,14 +62,15 @@ program.command("report").option("--project <id>").option("--thread <thread-id>"
   throw new Error("Provide --project <id> or --thread <thread-id>");
 });
 
-program.command("export").requiredOption("--format <format>", "xlsx, csv, or json").requiredOption("--out <file>").description("Export reports").action(async (options) => {
+program.command("export").option("--format <format>", "xlsx, csv, or json", "xlsx").option("--out <file>").description("Export reports").action(async (options) => {
   const { reports, config } = await loadReports();
-  const out = resolve(options.out);
+  const format = options.format as string;
+  const out = resolve(options.out ?? defaultExportFilename(format));
   await mkdir(dirname(out), { recursive: true });
-  if (options.format === "json") await writeJson(out, reports);
-  else if (options.format === "csv") await writeCsv(out, reports);
-  else if (options.format === "xlsx") await writeXlsx(out, reports, config);
-  else throw new Error(`Unsupported format: ${options.format}`);
+  if (format === "json") await writeJson(out, reports);
+  else if (format === "csv") await writeCsv(out, reports);
+  else if (format === "xlsx") await writeXlsx(out, reports, config);
+  else throw new Error(`Unsupported format: ${format}`);
   console.log(`Wrote ${out}`);
 });
 
@@ -77,6 +78,12 @@ async function loadReports() {
   const config = loadConfig();
   const scan = await scanCodex(config);
   return { config, scan, reports: buildReports(scan.events, config, scan.threadNames) };
+}
+
+function defaultExportFilename(format: string): string {
+  const extension = format === "csv" || format === "json" || format === "xlsx" ? format : "xlsx";
+  const timestamp = new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z");
+  return `codex-cost-report-${timestamp}.${extension}`;
 }
 
 await program.parseAsync();
