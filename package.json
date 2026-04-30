@@ -1,6 +1,6 @@
 {
   "name": "codex-cost",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local Codex JSONL usage and cost reporting CLI",
   "type": "module",
   "packageManager": "pnpm@10.24.0",
