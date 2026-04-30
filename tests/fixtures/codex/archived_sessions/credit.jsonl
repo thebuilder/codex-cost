@@ -1,0 +1,4 @@
+{"type":"session_meta","timestamp":"2026-04-13T09:00:00.000Z","payload":{"id":"credit-thread","cwd":"/work/client-b/site","rate_limits":{"plan_type":"pro","credits":{"has_credits":true,"balance":42}}}}
+{"type":"turn_context","timestamp":"2026-04-13T09:01:00.000Z","payload":{"model":"gpt-5.4-mini","turn_id":"turn-credit","cwd":"/work/client-b/site"}}
+{"type":"thread_name_updated","timestamp":"2026-04-13T09:01:30.000Z","payload":{"thread_id":"credit-thread","name":"Renamed Credit Thread"}}
+{"type":"event_msg","timestamp":"2026-04-13T09:02:00.000Z","payload":{"type":"token_count","rate_limits":{"plan_type":"pro","credits":{"has_credits":true,"balance":41}},"last_token_usage":{"input_tokens":2000,"cached_input_tokens":1000,"output_tokens":500,"reasoning_output_tokens":0}}}

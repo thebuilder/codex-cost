@@ -1,0 +1,22 @@
+node_modules/
+
+# Native TypeScript and package-manager output
+dist/
+coverage/
+*.tsbuildinfo
+*.tgz
+tests/**/*.js
+
+# Local config and generated reports
+codex-cost.config.json
+*.csv
+*.xlsx
+*.json
+!package.json
+!tsconfig.json
+!tests/**/*.json
+!tests/**/*.jsonl
+
+# Logs and OS files
+*.log
+.DS_Store
