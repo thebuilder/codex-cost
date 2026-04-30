@@ -39,6 +39,7 @@ export function buildReports(events: UsageEvent[], config: CodexCostConfig, thre
       credits: latestCredits(threadEvents),
       speed: unique(threadEvents.map((event) => event.speed)).join(", "),
       timeRange: timeRange(threadEvents.map((event) => event.timestamp)),
+      durationMs: durationMs(threadEvents),
       tokenTotals: tokenTotals(threadEvents),
       estimatedDollars: priced.dollars,
       estimatedCredits: priced.credits,
@@ -54,6 +55,7 @@ export function buildReports(events: UsageEvent[], config: CodexCostConfig, thre
       projectId,
       projectName: projectThreads[0]?.projectName ?? projectId,
       timeRange: timeRange(allEvents.map((event) => event.timestamp)),
+      durationMs: sum(projectThreads.map((thread) => thread.durationMs)),
       threadCount: projectThreads.length,
       tokenTotals: tokenTotals(allEvents),
       estimatedDollars: sum(projectThreads.map((thread) => thread.estimatedDollars)),
@@ -150,6 +152,10 @@ function timeRange(values: string[]): { start: string | null; end: string | null
 
 function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
+}
+
+function durationMs(events: UsageEvent[]): number {
+  return sum(events.map((event) => event.durationMs ?? 0));
 }
 
 function nullableSum(values: Array<number | null>): number | null {

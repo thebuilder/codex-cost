@@ -4,3 +4,5 @@
 {"type":"event_msg","timestamp":"2026-04-12T10:02:00.000Z","payload":{"type":"token_count","last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":200,"reasoning_output_tokens":50}}}
 {"type":"turn_context","timestamp":"2026-04-12T10:03:00.000Z","payload":{"model":"unknown-local-model","turn_id":"turn-2"}}
 {"type":"event_msg","timestamp":"2026-04-12T10:04:00.000Z","payload":{"type":"token_count","last_token_usage":{"input_tokens":500,"cached_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0}}}
+{"type":"turn_context","timestamp":"2026-04-12T10:05:00.000Z","payload":{"model":"gpt-5.4-mini","turn_id":"turn-stale"}}
+{"type":"event_msg","timestamp":"2026-04-12T12:05:00.000Z","payload":{"type":"token_count","last_token_usage":{"input_tokens":0,"cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0}}}

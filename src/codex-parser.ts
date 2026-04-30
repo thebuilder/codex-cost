@@ -10,9 +10,13 @@ type ThreadState = {
   model?: string;
   effort?: string;
   turnId?: string;
+  turnStartedAt?: string;
+  lastUsageAt?: string;
   planType?: string;
   credits?: UsageEvent["credits"];
 };
+
+const maxUsageGapMs = 30 * 60 * 1000;
 
 export async function scanCodex(config: CodexCostConfig): Promise<ScanResult> {
   const threadNames = await readThreadNames(join(config.codexHome, "session_index.jsonl"));
@@ -48,6 +52,8 @@ export async function scanCodex(config: CodexCostConfig): Promise<ScanResult> {
         state.model = stringValue(payload.model) ?? state.model;
         state.effort = stringValue(payload.effort) ?? stringValue(payload.reasoning_effort) ?? state.effort;
         state.turnId = stringValue(payload.turn_id) ?? stringValue(payload.id) ?? state.turnId;
+        state.turnStartedAt = stringValue(record.timestamp) ?? stringValue(payload.timestamp) ?? state.turnStartedAt;
+        state.lastUsageAt = undefined;
         state.planType = readPlanType(payload) ?? state.planType;
         state.credits = readCredits(payload) ?? state.credits ?? null;
         continue;
@@ -76,8 +82,12 @@ export async function scanCodex(config: CodexCostConfig): Promise<ScanResult> {
       seen.add(dedupeKey);
 
       const model = stringValue(usage.model) ?? stringValue(record.payload.model) ?? state.model ?? "unknown";
+      const startedAt = state.lastUsageAt ?? state.turnStartedAt;
+      const eventDurationMs = durationMs(startedAt, timestamp);
       events.push({
         timestamp,
+        startedAt,
+        durationMs: eventDurationMs,
         threadId,
         threadName: threadNames.get(threadId),
         turnId: stringValue(record.payload.turn_id) ?? state.turnId,
@@ -93,6 +103,7 @@ export async function scanCodex(config: CodexCostConfig): Promise<ScanResult> {
         reasoningOutputTokens: numberValue(usage.reasoning_output_tokens),
         sourceFile: file
       });
+      state.lastUsageAt = timestamp;
     }
   }
 
@@ -157,4 +168,13 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function durationMs(start: string | undefined, end: string): number | null {
+  if (!start || !end) return null;
+  const startTime = new Date(start).getTime();
+  const endTime = new Date(end).getTime();
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime < startTime) return null;
+  const duration = endTime - startTime;
+  return duration <= maxUsageGapMs ? duration : null;
 }

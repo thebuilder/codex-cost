@@ -14,6 +14,8 @@ export type CreditsStatus = {
 
 export type UsageEvent = {
   timestamp: string;
+  startedAt?: string;
+  durationMs: number | null;
   threadId: string;
   threadName?: string;
   turnId?: string;
@@ -41,6 +43,7 @@ export type ThreadReport = {
   credits: CreditsStatus | null;
   speed: string;
   timeRange: { start: string | null; end: string | null };
+  durationMs: number;
   tokenTotals: TokenTotals;
   estimatedDollars: number;
   estimatedCredits: number | null;
@@ -52,6 +55,7 @@ export type ProjectReport = {
   projectId: string;
   projectName: string;
   timeRange: { start: string | null; end: string | null };
+  durationMs: number;
   threadCount: number;
   tokenTotals: TokenTotals;
   estimatedDollars: number;
