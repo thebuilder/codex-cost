@@ -2,6 +2,8 @@
 
 Local CLI for estimating Codex usage cost from JSONL session files.
 
+<img width="1774" height="887" alt="image" src="https://github.com/user-attachments/assets/db1394ea-dd5e-4f27-a016-ac8ef1514ff2" />
+
 **Features**
 
 - See Codex usage and estimated cost by project or thread
@@ -9,6 +11,7 @@ Local CLI for estimating Codex usage cost from JSONL session files.
 - Filter reports by recent ranges or month names
 - Export clean JSON, CSV, and Excel reports
 - Tune pricing with an editable rate card
+
 
 ## Requirements
 
